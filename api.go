@@ -12,8 +12,6 @@ import (
 const (
 	apiURL    = "https://api.twitch.tv/helix"
 	idURL     = "https://id.twitch.tv/oauth2/token"
-	apiKey    = "cotxsalhlctv8z572f7fant4b0sc3u"
-	apiSecret = "gaofxvult280l3sbz8n6btvk5fdswp"
 )
 
 type AuthResponse struct {
