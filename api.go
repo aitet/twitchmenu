@@ -68,6 +68,14 @@ func writeFile(filePath, content string) error {
 }
 
 func GetStreamData(endpoint string) ([]map[string]interface{}, error) {
+	apiKey := os.Getenv("TWITCH_API_KEY")
+	apiSecret := os.Getenv("TWITCH_API_SECRET")
+
+	if apiKey == "" || apiSecret == "" {
+		fmt.Println("TWITCH_API_KEY or TWITCH_API_SECRET environment variable is not set")
+		os.Exit(1)
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory")
