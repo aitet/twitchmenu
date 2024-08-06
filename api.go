@@ -12,6 +12,9 @@ import (
 const (
 	apiURL    = "https://api.twitch.tv/helix"
 	idURL     = "https://id.twitch.tv/oauth2/token"
+	// I'm tired of keeping keys private in git and nix. It's such a hassle. Just don't get the keys banned.
+	apiKey    = "cotxsalhlctv8z572f7fant4b0sc3u"
+	apiSecret = "gaofxvult280l3sbz8n6btvk5fdswp"
 )
 
 type AuthResponse struct {
@@ -68,14 +71,6 @@ func writeFile(filePath, content string) error {
 }
 
 func GetStreamData(endpoint string) ([]map[string]interface{}, error) {
-	apiKey := os.Getenv("TWITCH_API_KEY")
-	apiSecret := os.Getenv("TWITCH_API_SECRET")
-
-	if apiKey == "" || apiSecret == "" {
-		fmt.Println("TWITCH_API_KEY or TWITCH_API_SECRET environment variable is not set")
-		os.Exit(1)
-	}
-
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory")
