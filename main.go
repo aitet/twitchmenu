@@ -8,6 +8,12 @@ import (
 	"sync"
 )
 
+type Result struct {
+	Type string
+	Data []map[string]interface{}
+	Err  error
+}
+
 const (
 	namesFile  = "/.config/twitch/names"
 	cacheDir   = "/.cache/twitch"
@@ -55,35 +61,26 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
+	resultChannel := make(chan Result, 3)
 	wg.Add(3)
-
-	followedChannel := make(chan []map[string]interface{})
-	topChannel := make(chan []map[string]interface{})
-	gamesChannel := make(chan []map[string]interface{})
-	errorChannel := make(chan error, 3)
 
 	go func()  {
 		defer wg.Done()
 		top, err := GetStreamData("/streams?first=100")
-		if err != nil {
-			errorChannel <- err
-			return
-		}
-		topChannel <- top
+		resultChannel <- Result{Type: "top", Data: top, Err: err}
 	}()
+
 	go func() {
 		defer wg.Done()
 		games, err := GetStreamData("/games/top?first=100")
-		if err != nil {
-			fmt.Println("Error fetching games:", err)
-		}
-		gamesChannel <- games
+		resultChannel <- Result{Type: "games", Data: games, Err: err}
 	}()
+
 	go func() {
 		defer wg.Done()
 		names, err := readFile(namesFilePath)
 		if err != nil {
-			errorChannel <- err
+			resultChannel <- Result{Type: "followed", Err: err}
 			return
 		}
 		streamers := strings.Fields(names)
@@ -93,81 +90,62 @@ func main() {
 				queryParams = append(queryParams, "user_login="+streamer)
 			}
 		}
-		endpoint := "/streams?" + strings.Join(queryParams, "&")
-		followed, err := GetStreamData(endpoint)
-		if err != nil {
-			errorChannel <- err
-			return
-		}
-		followedChannel <- followed
+		followed, err := GetStreamData("/streams?" + strings.Join(queryParams, "&"))
+		resultChannel <- Result{Type: "followed", Data: followed, Err: err}
 	}()
 
+
 	go func() {
-			wg.Wait()
-			close(followedChannel)
-			close(topChannel)
-			close(gamesChannel)
-			close(errorChannel)
+		wg.Wait()
+		close(resultChannel)
 	}()
 
 	choices := []string{"top", "followed", "games"}
-	choice := dmenu(choices, "Select an option:")
+	choice := dmenu(choices, "-p twitch")
 	if choice == "" {
 		return
 	}
+
 	var top, followed, games []map[string]interface{}
-	for {
-		select {
-			case err := <-errorChannel:
-				if err != nil {
-					fmt.Println("Error:", err)
-					return
-				}
-			case data := <-followedChannel:
-				if data != nil {
-					followed = data
-				}
-			case data := <-topChannel:
-				if data != nil {
-					top = data
-				}
-			case data := <-gamesChannel:
-				if data != nil {
-					games = data
-				}
+	for result := range resultChannel {
+		if result.Err != nil {
+			fmt.Println("Error:", result.Err)
+			return
+		}
+		switch result.Type {
+		case "top":
+			top = result.Data
+		case "games":
+			games = result.Data
+		case "followed":
+			followed = result.Data
 		}
 		if followed != nil && top != nil && games != nil {
 			break
 		}
 	}
 
-
 	var streams []map[string]interface{}
 	switch choice {
 	case "top":
 		streams = top
-
 	case "followed":
 		streams = followed
 	case "games":
-		gameNames := []string{}
-		for _, game := range games {
-			gameNames = append(gameNames, game["name"].(string))
+		gameNames := make([]string, len(games))
+		for i, game := range games {
+			gameNames[i] = game["name"].(string)
 		}
-		selectedGame := dmenu(gameNames, "Select a game:")
-		if selectedGame == "" {
-			return
-		}
-		for _, game := range games {
-			if game["name"].(string) == selectedGame {
-				endpoint := "/streams?game_id=" + game["id"].(string)
-				live, err := GetStreamData(endpoint)
-				if err != nil {
-					fmt.Println("Error fetching streams:", err)
-					return
+		if selectedGame := dmenu(gameNames, "-l 20 -p games"); selectedGame != "" {
+			for _, game := range games {
+				if game["name"].(string) == selectedGame {
+					send := "/streams?game_id=" + game["id"].(string)
+					if streams, err = GetStreamData(send); err != nil {
+						fmt.Println("Error fetching streams:", err)
+						return
+					}
+					break
 				}
-				streams = live
-				break
 			}
 		}
 	}
@@ -177,7 +155,7 @@ func main() {
 		liveStreamers = append(liveStreamers, fmt.Sprintf("%v\t%v", stream["viewer_count"], stream["user_login"]))
 	}
 
-	selectedStreamer := dmenu(liveStreamers, "Live channels:")
+	selectedStreamer := dmenu(liveStreamers, "-l 10 -p live")
 	if selectedStreamer == "" {
 		return
 	}
@@ -239,8 +217,8 @@ func addName(filePath, name string) {
 	fmt.Println("Name added.")
 }
 
-func dmenu(options []string, prompt string) string {
-	cmd := exec.Command("dmenu", "-i", "-p", prompt)
+func dmenu(options []string, args string) string {
+	cmd := exec.Command("dmenu", "-i", args)
 	cmd.Stdin = strings.NewReader(strings.Join(options, "\n"))
 	out, err := cmd.Output()
 	if err != nil {

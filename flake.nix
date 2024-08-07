@@ -27,11 +27,6 @@
 
               CGO_ENABLED = 0;
 
-              env = {
-                TWITCH_API_KEY  = builtins.getEnv "TWITCH_API_KEY";
-                TWITCH_API_SECRET  = builtins.getEnv "TWITCH_API_SECRET";
-              };
-
               meta = with pkgs.lib; {
                 description = "dmenu script to see who is online";
                 homepage = "https://github.com/aiten/twitchmenu";
