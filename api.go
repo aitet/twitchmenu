@@ -21,7 +21,7 @@ type AuthResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-func getApiToken() string {
+func getNewApiToken() string {
 	data := url.Values{}
 	data.Set("client_id", apiKey)
 	data.Set("client_secret", apiSecret)
@@ -50,47 +50,69 @@ func getApiToken() string {
 	return authResponse.AccessToken
 }
 
-func readFile(filePath string) (string, error) {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-	return string(content), nil
-}
-
-func writeFile(filePath, content string) error {
-	return os.WriteFile(filePath, []byte(content), 0644)
-}
-
-func GetStreamData(endpoint string) ([]map[string]interface{}, error) {
+func writeNewToken() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user home directory")
+		fmt.Println("Failed to get user home directory:", err)
+		os.Exit(1)
 	}
 
-	apiFile := homeDir + cacheDir + "/api"
-	var accessToken string
+	apiFile := homeDir + "/.cache/twitch/api"
+	newToken := getNewApiToken()
+	if err := os.WriteFile(apiFile, []byte(newToken), 0644); err != nil {
+		fmt.Println("Error writing API token to file:", err)
+		os.Exit(1)
 
-	if content, err := readFile(apiFile); err == nil {
-		accessToken = content
-	} else {
-		accessToken = getApiToken()
-		if err := writeFile(apiFile, accessToken); err != nil {
-			return nil, fmt.Errorf("error writing API token to file: %v", err)
+	}
+	return
+}
+
+func getApiToken() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Println("Failed to get user home directory:", err)
+		os.Exit(1)
+	}
+
+	apiFile := homeDir + "/.cache/twitch/api"
+	content, err := os.ReadFile(apiFile)
+	if err != nil {
+		fmt.Println("Failed to read API token from file, generating a new one.")
+		newToken := getNewApiToken()
+		if err := os.WriteFile(apiFile, []byte(newToken), 0644); err != nil {
+			fmt.Println("Error writing API token to file:", err)
+			os.Exit(1)
 		}
+		return newToken
 	}
+	return string(content)
+}
 
+func sendRequest(endpoint string, accessToken string) (*http.Response, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", apiURL+endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 	req.Header.Set("Client-ID", apiKey)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Authorization", "Bearer " + accessToken)
 
 	resp, err := client.Do(req)
+
+	return resp, err
+}
+
+func GetStreamData(endpoint string) ([]map[string]interface{}, error) {
+	accessToken := getApiToken()
+
+	resp, err := sendRequest(endpoint, accessToken)
 	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("initial request failed with status code %d: %v", resp.StatusCode, err)
+		writeNewToken()
+		accessToken = getApiToken()
+		resp, err := sendRequest(endpoint, accessToken)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("initial request failed with status code %d: %v", resp.StatusCode, err)
+		}
 	}
 	defer resp.Body.Close()
 

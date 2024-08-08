@@ -78,12 +78,12 @@ func main() {
 
 	go func() {
 		defer wg.Done()
-		names, err := readFile(namesFilePath)
+		names, err := os.ReadFile(namesFilePath)
 		if err != nil {
 			resultChannel <- Result{Type: "followed", Err: err}
 			return
 		}
-		streamers := strings.Fields(names)
+		streamers := strings.Fields(string(names))
 		queryParams := []string{}
 		for _, streamer := range streamers {
 			if streamer != "" {
@@ -190,31 +190,36 @@ func openEditor(filePath string) {
 }
 
 func showNames(filePath string) {
-	names, err := readFile(filePath)
+	names, err := os.ReadFile(filePath)
 	if err != nil {
 		fmt.Println("Error reading names file:", err)
 		return
 	}
-	fmt.Println(names)
+	fmt.Println(string(names))
 }
 
 func addName(filePath, name string) {
-	names, err := readFile(filePath)
+	names, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			writeFile(filePath, name+"\n")
+			os.WriteFile(filePath, []byte(name + "\n"), 0644)
 			fmt.Println("Name added.")
 			return
 		}
 		fmt.Println("Error reading names file:", err)
 		return
 	}
-	if strings.Contains(names, name) {
+	if strings.Contains(string(names), name) {
 		fmt.Println(name, "is already added.")
 		return
 	}
-	writeFile(filePath, names+name+"\n")
-	fmt.Println("Name added.")
+
+	err = os.WriteFile(filePath, append(names, []byte(name+"\n")...), 0644)
+	if err != nil {
+		fmt.Println("Error writing name to file:", err)
+	} else {
+		fmt.Println("Name added.")
+	}
 }
 
 func dmenu(options []string, args string) string {
