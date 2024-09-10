@@ -18,7 +18,7 @@ TwitchMenu is a simple yet powerful tool that integrates with `dmenu` to show yo
 ## Installation
 
 1. **Download the Binary**:
-   Download the latest release from the [Releases](https://github.com/aiten/twitchmenu/releases) page.
+   Download the latest release from the [Releases](https://github.com/aitet/twitchmenu/releases) page.
 
 2. **Run the Binary**:
    Make the binary executable and run it:
