@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 )
 
 const (
-	apiURL    = "https://api.twitch.tv/helix"
-	idURL     = "https://id.twitch.tv/oauth2/token"
+	apiURL = "https://api.twitch.tv/helix"
+	idURL  = "https://id.twitch.tv/oauth2/token"
 	// I'm tired of keeping keys private in git and nix. It's such a hassle. Just don't get the keys banned.
 	apiKey    = "cotxsalhlctv8z572f7fant4b0sc3u"
 	apiSecret = "gaofxvult280l3sbz8n6btvk5fdswp"
@@ -50,7 +51,12 @@ func getNewApiToken() string {
 	return authResponse.AccessToken
 }
 
+var tokenMutex sync.Mutex
+
 func writeNewToken() {
+	tokenMutex.Lock()
+	defer tokenMutex.Unlock()
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Println("Failed to get user home directory:", err)
@@ -64,7 +70,6 @@ func writeNewToken() {
 		os.Exit(1)
 
 	}
-	return
 }
 
 func getApiToken() string {
@@ -95,7 +100,7 @@ func sendRequest(endpoint string, accessToken string) (*http.Response, error) {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 	req.Header.Set("Client-ID", apiKey)
-	req.Header.Set("Authorization", "Bearer " + accessToken)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	resp, err := client.Do(req)
 
@@ -109,9 +114,10 @@ func GetStreamData(endpoint string) ([]map[string]interface{}, error) {
 	if err != nil || resp.StatusCode != http.StatusOK {
 		writeNewToken()
 		accessToken = getApiToken()
-		resp, err := sendRequest(endpoint, accessToken)
+		resp, err = sendRequest(endpoint, accessToken)
 		if err != nil || resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("initial request failed with status code %d: %v", resp.StatusCode, err)
+			fmt.Printf("Second request failed with status code %d: %v", resp.StatusCode, err)
+			os.Exit(1)
 		}
 	}
 	defer resp.Body.Close()
