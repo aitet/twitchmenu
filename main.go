@@ -60,19 +60,37 @@ func main() {
 		}
 	}
 
+	apiFile := homeDir + "/.cache/twitch/api"
+	accessToken, err := getApiToken(apiFile)
+	if err != nil {
+		fmt.Printf("accsess token is weird: %v", err)
+		os.Exit(1)
+	}
+
+	testErr := testRequest(accessToken)
+	if testErr != nil {
+		if strings.Contains(testErr.Error(), "Authorization") {
+			newToken, err := getNewApiToken(apiFile)
+			if err != nil {
+				return
+			}
+			accessToken = newToken
+		}
+	}
+
 	var wg sync.WaitGroup
 	resultChannel := make(chan Result, 3)
 	wg.Add(3)
 
 	go func()  {
 		defer wg.Done()
-		top, err := GetStreamData("/streams?first=100")
+		top, err := GetStreamData("/streams?first=100", accessToken)
 		resultChannel <- Result{Type: "top", Data: top, Err: err}
 	}()
 
 	go func() {
 		defer wg.Done()
-		games, err := GetStreamData("/games/top?first=100")
+		games, err := GetStreamData("/games/top?first=100", accessToken)
 		resultChannel <- Result{Type: "games", Data: games, Err: err}
 	}()
 
@@ -90,7 +108,7 @@ func main() {
 				queryParams = append(queryParams, "user_login="+streamer)
 			}
 		}
-		followed, err := GetStreamData("/streams?" + strings.Join(queryParams, "&"))
+		followed, err := GetStreamData("/streams?" + strings.Join(queryParams, "&"), accessToken)
 		resultChannel <- Result{Type: "followed", Data: followed, Err: err}
 	}()
 
@@ -140,7 +158,7 @@ func main() {
 			for _, game := range games {
 				if game["name"].(string) == selectedGame {
 					send := "/streams?game_id=" + game["id"].(string)
-					if streams, err = GetStreamData(send); err != nil {
+					if streams, err = GetStreamData(send, accessToken); err != nil {
 						fmt.Println("Error fetching streams:", err)
 						return
 					}

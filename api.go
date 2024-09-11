@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sync"
 )
 
 const (
@@ -21,15 +20,7 @@ type AuthResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-var (
-	tokenMutex sync.Mutex
-	tokenOnce  sync.Once
-)
-
-func getNewApiToken() (string, error) {
-	tokenMutex.Lock()
-	defer tokenMutex.Unlock()
-
+func getNewApiToken(apiFile string) (string, error) {
 	data := url.Values{}
 	data.Set("client_id", apiKey)
 	data.Set("client_secret", apiSecret)
@@ -52,12 +43,6 @@ func getNewApiToken() (string, error) {
 		return "", fmt.Errorf("error decoding response: %v", err)
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %v", err)
-	}
-
-	apiFile := homeDir + "/.cache/twitch/api"
 	if err := os.WriteFile(apiFile, []byte(authResponse.AccessToken), 0644); err != nil {
 		return "", fmt.Errorf("error writing API token to file: %v", err)
 	}
@@ -65,23 +50,34 @@ func getNewApiToken() (string, error) {
 	return authResponse.AccessToken, nil
 }
 
-func getApiToken() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %v", err)
-	}
-
-	apiFile := homeDir + "/.cache/twitch/api"
+func getApiToken(apiFile string) (string, error) {
 	content, err := os.ReadFile(apiFile)
 	if err != nil {
-		newToken, err := getNewApiToken()
+		newToken, err := getNewApiToken(apiFile)
 		if err != nil {
-			return "", err
+			fmt.Printf("Failed to set new token: %v", err)
+			os.Exit(1)
 		}
 		content = []byte(newToken)
 	}
 
 	return string(content), nil
+}
+
+func testRequest(accessToken string) error {
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", apiURL+"/games/top?first=1", nil)
+	if err != nil {
+		return fmt.Errorf("error creating request: %v", err)
+	}
+	req.Header.Set("Client-ID", apiKey)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	_, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func sendRequest(endpoint string, accessToken string) (*http.Response, error) {
@@ -98,35 +94,10 @@ func sendRequest(endpoint string, accessToken string) (*http.Response, error) {
 		return nil, err
 	}
 
-	// Check if the token is invalid
-	if resp.StatusCode == http.StatusUnauthorized {
-		// Get a new token
-		var newToken string
-		var err error
-		tokenOnce.Do(func() {
-			newToken, err = getNewApiToken()
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// Retry the request with the new token
-		req.Header.Set("Authorization", "Bearer "+newToken)
-		resp, err = client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return resp, err
+	return resp, nil
 }
 
-func GetStreamData(endpoint string) ([]map[string]interface{}, error) {
-	accessToken, err := getApiToken()
-	if err != nil {
-		return nil, err
-	}
-
+func GetStreamData(endpoint string, accessToken string) ([]map[string]interface{}, error) {
 	resp, err := sendRequest(endpoint, accessToken)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request failed with status code %d: %v", resp.StatusCode, err)
