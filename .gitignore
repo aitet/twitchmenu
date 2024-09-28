@@ -29,3 +29,7 @@ twitchmenu
 
 # env file
 .env
+logs/ollama.log
+.main.go.swn
+logfile
+shell.nix

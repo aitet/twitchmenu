@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"net/http"
 )
 
 type Result struct {
@@ -60,6 +61,8 @@ func main() {
 		}
 	}
 
+
+
 	apiFile := homeDir + "/.cache/twitch/api"
 	accessToken, err := getApiToken(apiFile)
 	if err != nil {
@@ -67,15 +70,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	testErr := testRequest(accessToken)
-	if testErr != nil {
-		if strings.Contains(testErr.Error(), "Authorization") {
-			newToken, err := getNewApiToken(apiFile)
-			if err != nil {
-				return
-			}
-			accessToken = newToken
+	resp, testErr := sendRequest("/games/top?first=1", accessToken)
+	if testErr != nil || resp.StatusCode != http.StatusOK {
+		newToken, err := getNewApiToken(apiFile)
+		if err != nil {
+			return
 		}
+		accessToken = newToken
 	}
 
 	var wg sync.WaitGroup
@@ -127,6 +128,7 @@ func main() {
 	var top, followed, games []map[string]interface{}
 	for result := range resultChannel {
 		if result.Err != nil {
+			fmt.Println("Response:", result.Err.Error())
 			fmt.Println("Error:", result.Err)
 			return
 		}

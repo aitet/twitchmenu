@@ -91,7 +91,7 @@ func sendRequest(endpoint string, accessToken string) (*http.Response, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to send: %v", err)
 	}
 
 	return resp, nil
