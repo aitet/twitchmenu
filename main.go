@@ -69,54 +69,56 @@ func main() {
 		fmt.Printf("accsess token is weird: %v", err)
 		os.Exit(1)
 	}
-
-	resp, testErr := sendRequest("/games/top?first=1", accessToken)
-	if testErr != nil || resp.StatusCode != http.StatusOK {
-		newToken, err := getNewApiToken(apiFile)
-		if err != nil {
-			return
-		}
-		accessToken = newToken
-	}
-
 	var wg sync.WaitGroup
 	resultChannel := make(chan Result, 3)
 	wg.Add(3)
 
-	go func()  {
-		defer wg.Done()
-		top, err := GetStreamData("/streams?first=100", accessToken)
-		resultChannel <- Result{Type: "top", Data: top, Err: err}
-	}()
-
 	go func() {
-		defer wg.Done()
-		games, err := GetStreamData("/games/top?first=100", accessToken)
-		resultChannel <- Result{Type: "games", Data: games, Err: err}
-	}()
-
-	go func() {
-		defer wg.Done()
-		names, err := os.ReadFile(namesFilePath)
-		if err != nil {
-			resultChannel <- Result{Type: "followed", Err: err}
-			return
-		}
-		streamers := strings.Fields(string(names))
-		queryParams := []string{}
-		for _, streamer := range streamers {
-			if streamer != "" {
-				queryParams = append(queryParams, "user_login="+streamer)
+		resp, testErr := sendRequest("/games/top?first=1", accessToken)
+		if testErr != nil || resp.StatusCode != http.StatusOK {
+			newToken, err := getNewApiToken(apiFile)
+			if err != nil {
+				return
 			}
+			accessToken = newToken
 		}
-		followed, err := GetStreamData("/streams?" + strings.Join(queryParams, "&"), accessToken)
-		resultChannel <- Result{Type: "followed", Data: followed, Err: err}
-	}()
 
 
-	go func() {
-		wg.Wait()
-		close(resultChannel)
+		go func()  {
+			defer wg.Done()
+			top, err := GetStreamData("/streams?first=100", accessToken)
+			resultChannel <- Result{Type: "top", Data: top, Err: err}
+		}()
+
+		go func() {
+			defer wg.Done()
+			games, err := GetStreamData("/games/top?first=100", accessToken)
+			resultChannel <- Result{Type: "games", Data: games, Err: err}
+		}()
+
+		go func() {
+			defer wg.Done()
+			names, err := os.ReadFile(namesFilePath)
+			if err != nil {
+				resultChannel <- Result{Type: "followed", Err: err}
+				return
+			}
+			streamers := strings.Fields(string(names))
+			queryParams := []string{}
+			for _, streamer := range streamers {
+				if streamer != "" {
+					queryParams = append(queryParams, "user_login="+streamer)
+				}
+			}
+			followed, err := GetStreamData("/streams?" + strings.Join(queryParams, "&"), accessToken)
+			resultChannel <- Result{Type: "followed", Data: followed, Err: err}
+		}()
+
+
+		go func() {
+			wg.Wait()
+			close(resultChannel)
+		}()
 	}()
 
 	choices := []string{"top", "followed", "games"}
@@ -186,13 +188,13 @@ func main() {
 
 func printHelp() {
 	fmt.Println(`Usage:
-     twitch [ OPTION [...] ]
+	twitch [ OPTION [...] ]
 
-Options:
-     -a: 	Adds name to the list
-     -e:	Opens the list in ${EDITOR:-vi}
-     -l:	Show the list that will be checked
-     -h:	Show help`)
+	Options:
+	-a: 	Adds name to the list
+	-e:	Opens the list in ${EDITOR:-vi}
+	-l:	Show the list that will be checked
+	-h:	Show help`)
 }
 
 func openEditor(filePath string) {
