@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"net/http"
 )
 
 type Result struct {
@@ -16,8 +15,8 @@ type Result struct {
 }
 
 const (
-	namesFile  = "/.config/twitch/names"
-	cacheDir   = "/.cache/twitch"
+	namesFile = "/.config/twitch/names"
+	cacheDir  = "/.cache/twitch"
 )
 
 func main() {
@@ -61,64 +60,77 @@ func main() {
 		}
 	}
 
-
-
 	apiFile := homeDir + "/.cache/twitch/api"
 	accessToken, err := getApiToken(apiFile)
 	if err != nil {
 		fmt.Printf("accsess token is weird: %v", err)
 		os.Exit(1)
 	}
+
+	var top, followed, games []map[string]interface{}
+	Err := false
 	var wg sync.WaitGroup
+	var ready sync.WaitGroup
+	ready.Add(1)
 	resultChannel := make(chan Result, 3)
-	wg.Add(3)
 
+	startDataGet(resultChannel, accessToken, &wg)
 	go func() {
-		resp, testErr := sendRequest("/games/top?first=1", accessToken)
-		if testErr != nil || resp.StatusCode != http.StatusOK {
-			newToken, err := getNewApiToken(apiFile)
-			if err != nil {
-				return
-			}
-			accessToken = newToken
-		}
-
-
-		go func()  {
-			defer wg.Done()
-			top, err := GetStreamData("/streams?first=100", accessToken)
-			resultChannel <- Result{Type: "top", Data: top, Err: err}
-		}()
-
-		go func() {
-			defer wg.Done()
-			games, err := GetStreamData("/games/top?first=100", accessToken)
-			resultChannel <- Result{Type: "games", Data: games, Err: err}
-		}()
-
-		go func() {
-			defer wg.Done()
-			names, err := os.ReadFile(namesFilePath)
-			if err != nil {
-				resultChannel <- Result{Type: "followed", Err: err}
-				return
-			}
-			streamers := strings.Fields(string(names))
-			queryParams := []string{}
-			for _, streamer := range streamers {
-				if streamer != "" {
-					queryParams = append(queryParams, "user_login="+streamer)
+		for result := range resultChannel {
+			if result.Err != nil {
+				Err = true
+				break
+			} else {
+				switch result.Type {
+				case "top":
+					top = result.Data
+				case "games":
+					games = result.Data
+				case "followed":
+					followed = result.Data
+				}
+				if followed != nil && top != nil && games != nil {
+					ready.Done()
+					break
 				}
 			}
-			followed, err := GetStreamData("/streams?" + strings.Join(queryParams, "&"), accessToken)
-			resultChannel <- Result{Type: "followed", Data: followed, Err: err}
-		}()
-
-
-		go func() {
+		}
+		if Err {
+			fmt.Println("new token")
+			newToken, err := getNewApiToken(apiFile)
+			if err != nil {
+				fmt.Println("failed getting new apikey")
+				os.Exit(1)
+			}
+			accessToken = newToken
+			followed = nil
+			top = nil
+			games = nil
+			newChannel := make(chan Result, 3)
+			go startDataGet(newChannel, accessToken, &wg)
 			wg.Wait()
-			close(resultChannel)
-		}()
+			for result := range newChannel {
+				if result.Err != nil {
+					os.Exit(1)
+				}
+				switch result.Type {
+				case "top":
+					top = result.Data
+				case "games":
+					games = result.Data
+				case "followed":
+					followed = result.Data
+				}
+				if followed != nil && top != nil && games != nil {
+					ready.Done()
+					break
+				}
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
 	}()
 
 	choices := []string{"top", "followed", "games"}
@@ -127,26 +139,7 @@ func main() {
 		return
 	}
 
-	var top, followed, games []map[string]interface{}
-	for result := range resultChannel {
-		if result.Err != nil {
-			fmt.Println("Response:", result.Err.Error())
-			fmt.Println("Error:", result.Err)
-			return
-		}
-		switch result.Type {
-		case "top":
-			top = result.Data
-		case "games":
-			games = result.Data
-		case "followed":
-			followed = result.Data
-		}
-		if followed != nil && top != nil && games != nil {
-			break
-		}
-	}
-
+	ready.Wait()
 	var streams []map[string]interface{}
 	switch choice {
 	case "top":
@@ -184,6 +177,45 @@ func main() {
 
 	streamURL := "https://twitch.tv/" + strings.Split(selectedStreamer, "\t")[1]
 	playStream(streamURL)
+}
+
+func startDataGet(channel chan Result, accessToken string, wg *sync.WaitGroup) {
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		top, err := GetStreamData("/streams?first=100", accessToken)
+		channel <- Result{Type: "top", Data: top, Err: err}
+	}()
+
+	go func() {
+		defer wg.Done()
+		games, err := GetStreamData("/games/top?first=100", accessToken)
+		channel <- Result{Type: "games", Data: games, Err: err}
+	}()
+
+	go func() {
+		defer wg.Done()
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Println("Failed to get user home directory")
+			os.Exit(1)
+		}
+		names, err := os.ReadFile(homeDir + namesFile)
+		if err != nil {
+			channel <- Result{Type: "followed", Err: err}
+			return
+		}
+		streamers := strings.Fields(string(names))
+		queryParams := []string{}
+		for _, streamer := range streamers {
+			if streamer != "" {
+				queryParams = append(queryParams, "user_login="+streamer)
+			}
+		}
+		followed, err := GetStreamData("/streams?"+strings.Join(queryParams, "&"), accessToken)
+		channel <- Result{Type: "followed", Data: followed, Err: err}
+	}()
+
 }
 
 func printHelp() {
@@ -224,7 +256,7 @@ func addName(filePath, name string) {
 	names, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			os.WriteFile(filePath, []byte(name + "\n"), 0644)
+			os.WriteFile(filePath, []byte(name+"\n"), 0644)
 			fmt.Println("Name added.")
 			return
 		}
