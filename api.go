@@ -99,10 +99,13 @@ func sendRequest(endpoint string, accessToken string) (*http.Response, error) {
 
 func GetStreamData(endpoint string, accessToken string) ([]map[string]interface{}, error) {
 	resp, err := sendRequest(endpoint, accessToken)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("request failed with status code %d: %v", resp.StatusCode, err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %v", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed with status code %d: %v", resp.StatusCode, err)
+	}
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
